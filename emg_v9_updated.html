@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>STM32 EMG 采集系统 V9.1</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f0f2f5;
+            --surface: #ffffff;
+            --surface2: #f8f9fb;
+            --border: #dde1e8;
+            --border2: #c8cdd6;
+            --text: #1a1d23;
+            --muted: #6b7280;
+            --muted2: #9ca3af;
+            --accent: #2563eb;
+            --c-action: #16a34a;
+            --c-action-bg: #f0fdf4;
+            --c-action-border: #bbf7d0;
+            --c-prep: #d97706;
+            --c-prep-bg: #fffbeb;
+            --c-prep-border: #fde68a;
+            --c-rest-bg: #f8f9fb;
+            --c-bad: #dc2626;
+            --ch1: #2563eb;
+            --ch2: #7c3aed;
+            --ch3: #ea580c;
+            --ch4: #db2777;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        #app {
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        /* 顶部标题栏 */
+        .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .title-block h1 {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            color: var(--text);
+        }
+
+        .title-block p {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: var(--muted2);
+            margin-top: 3px;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+
+        .conn-block {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .conn-info {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            padding: 5px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--muted);
+            background: var(--surface);
+        }
+
+        .conn-info.ok {
+            border-color: #86efac;
+            color: var(--c-action);
+            background: var(--c-action-bg);
+        }
+
+        .fps-badge {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--accent);
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            padding: 4px 10px;
+            border-radius: 20px;
+        }
+
+        /* 主布局 */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 16px;
+        }
+
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* 通用卡片 */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .card-title {
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--muted2);
+            margin-bottom: 12px;
+        }
+
+        /* 状态面板 */
+        #status-panel {
+            background: var(--c-rest-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px 16px;
+            text-align: center;
+            transition: background 0.25s, border-color 0.25s;
+        }
+
+        #status-panel.state-action {
+            background: var(--c-action-bg);
+            border-color: var(--c-action-border);
+        }
+        #status-panel.state-prep {
+            background: var(--c-prep-bg);
+            border-color: var(--c-prep-border);
+        }
+        #status-panel.state-rest {
+            background: var(--c-rest-bg);
+            border-color: var(--border);
+        }
+
+        .state-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--muted2);
+            margin: 0 auto 10px;
+            transition: background 0.25s;
+        }
+        .state-dot.action {
+            background: var(--c-action);
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .state-dot.prep { background: var(--c-prep); }
+
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        #stage-text {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+
+        #sub-text {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: var(--muted);
+            margin-bottom: 14px;
+            line-height: 1.5;
+        }
+
+        #timer {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 52px;
+            font-weight: 600;
+            color: var(--text);
+            line-height: 1;
+            display: block;
+        }
+
+        #status-panel.state-action #timer { color: var(--c-action); }
+        #status-panel.state-prep #timer { color: var(--c-prep); }
+
+        /* 按钮 */
+        .ctrl-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-weight: 500;
+            font-size: 13px;
+            transition: all 0.12s;
+            text-align: center;
+            border: 1px solid transparent;
+        }
+
+        .btn:active { transform: scale(0.98); }
+        .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+        .btn-connect {
+            background: #eff6ff;
+            color: var(--accent);
+            border-color: #bfdbfe;
+        }
+        .btn-connect:hover:not(:disabled) { background: #dbeafe; }
+
+        .btn-start {
+            background: var(--c-action);
+            color: white;
+            border-color: var(--c-action);
+        }
+        .btn-start:hover:not(:disabled) { background: #15803d; }
+
+        .btn-pause {
+            background: var(--surface2);
+            color: var(--text);
+            border-color: var(--border);
+        }
+        .btn-pause:hover:not(:disabled) { background: #eaecf0; }
+
+        .btn-bad {
+            background: #fef2f2;
+            color: var(--c-bad);
+            border-color: #fecaca;
+        }
+        .btn-bad:hover:not(:disabled) { background: #fee2e2; }
+
+        /* stat 行 */
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+        .stat-val { color: var(--text); font-weight: 600; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+
+        /* legend 行 */
+        .legend-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .legend-row:last-child { border-bottom: none; }
+        .legend-row span { color: var(--muted); }
+        .legend-row b { color: var(--text); font-weight: 600; }
+
+        /* 下载按钮 */
+        .btn-dl {
+            width: 100%;
+            background: var(--surface2);
+            color: var(--accent);
+            border: 1px solid #bfdbfe;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.12s;
+        }
+        .btn-dl:hover:not(:disabled) { background: #eff6ff; }
+        .btn-dl:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        /* 图表区 */
+        .charts-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .plot-box {
+            background: #0f1117;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #e2e5ea;
+        }
+
+        canvas { width: 100%; height: 100%; display: block; }
+
+        .ch-label {
+            position: absolute;
+            top: 8px; left: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            padding: 2px 7px;
+            border-radius: 3px;
+            z-index: 10;
+        }
+
+        .ch1 { color: #93c5fd; background: rgba(37,99,235,0.25); }
+        .ch2 { color: #c4b5fd; background: rgba(124,58,237,0.25); }
+        .ch3 { color: #fdba74; background: rgba(234,88,12,0.25); }
+        .ch4 { color: #f9a8d4; background: rgba(219,39,119,0.25); }
+
+        .val-display {
+            position: absolute;
+            top: 8px; right: 8px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.45);
+            z-index: 10;
+        }
+
+        @media (max-width: 900px) {
+            .main-grid { grid-template-columns: 1fr; }
+            .charts-area { grid-template-rows: repeat(4, 160px); }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+
+    <!-- 顶部栏 -->
+    <div class="top-bar">
+        <div class="title-block">
+            <h1>EMG Acquisition · V9.1</h1>
+            <p>STM32 · 2000 Hz · 4 CH · 12-bit ADC · 921600 Baud · HP 20Hz · Notch 50Hz · LP 400Hz(4th)</p>
+        </div>
+        <div class="conn-block">
+            <div class="conn-info" id="conn-info">未连接</div>
+            <div class="fps-badge" id="fps-stm">0 Hz</div>
+        </div>
+    </div>
+
+    <div class="main-grid">
+
+        <!-- 左侧面板 -->
+        <div class="left-panel">
+
+            <!-- 状态显示 -->
+            <div id="status-panel" class="state-rest">
+                <div class="state-dot" id="state-dot"></div>
+                <div id="stage-text">等待连接</div>
+                <div id="sub-text">请先连接 STM32</div>
+                <span id="timer">--</span>
+            </div>
+
+            <!-- 控制按钮 -->
+            <div class="card ctrl-panel">
+                <button class="btn btn-connect" onclick="connectSTM32()" id="btn-conn">连接 STM32</button>
+                <button class="btn btn-start" onclick="startExperiment()" id="btn-start" disabled>开始实验</button>
+                <button class="btn btn-pause" onclick="togglePause()" id="btn-pause" disabled>暂停</button>
+                <button class="btn btn-bad" onclick="markBad()" id="btn-bad" disabled>标记无效 (−3)</button>
+            </div>
+
+            <!-- 统计 -->
+            <div class="card">
+                <div class="card-title">采集统计</div>
+                <div class="stat-row">
+                    <span class="stat-label">已录制样本</span>
+                    <span class="stat-val" id="cnt-stm">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">当前 Label</span>
+                    <span class="stat-val" id="cur-label">—</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">当前动作</span>
+                    <span class="stat-val" id="cur-gesture">—</span>
+                </div>
+            </div>
+
+            <!-- Label 定义 -->
+            <div class="card">
+                <div class="card-title">Label 定义</div>
+                <div class="legend-row"><span>静息任务</span><b>0</b></div>
+                <div class="legend-row"><span>握拳 / 伸掌 / 内屈 / 外伸</span><b>1 ~ 4</b></div>
+                <div class="legend-row"><span>内旋 / 外旋</span><b>5 ~ 6</b></div>
+                <div class="legend-row"><span>组间放松</span><b>−4</b></div>
+                <div class="legend-row"><span>过渡段</span><b>−2</b></div>
+                <div class="legend-row"><span>标记无效</span><b>−3</b></div>
+            </div>
+
+            <!-- 信号处理链 -->
+            <div class="card">
+                <div class="card-title">信号处理链 (固件)</div>
+                <div class="legend-row"><span>采样率</span><b>2000 Hz</b></div>
+                <div class="legend-row"><span>高通滤波</span><b>20 Hz Butterworth</b></div>
+                <div class="legend-row"><span>陷波滤波</span><b>50 Hz Notch  Q=5</b></div>
+                <div class="legend-row"><span>低通滤波</span><b>400 Hz 4th-order</b></div>
+                <div class="legend-row"><span>ADC 分辨率</span><b>12-bit (0–4095)</b></div>
+                <div class="legend-row"><span>预热时间</span><b>500 ms (跳过)</b></div>
+            </div>
+
+            <!-- 导出 -->
+            <div class="card">
+                <div class="card-title">导出数据</div>
+                <button class="btn-dl" onclick="downloadData()" id="dl-data" disabled>下载数据集 (CSV)</button>
+            </div>
+
+        </div>
+
+        <!-- 右侧图表区 -->
+        <div class="charts-area">
+            <div class="plot-box">
+                <div class="ch-label ch1">CH 1</div>
+                <div class="val-display" id="val-ch1">—</div>
+                <canvas id="cvs1"></canvas>
+            </div>
+            <div class="plot-box">
+                <div class="ch-label ch2">CH 2</div>
+                <div class="val-display" id="val-ch2">—</div>
+                <canvas id="cvs2"></canvas>
+            </div>
+            <div class="plot-box">
+                <div class="ch-label ch3">CH 3</div>
+                <div class="val-display" id="val-ch3">—</div>
+                <canvas id="cvs3"></canvas>
+            </div>
+            <div class="plot-box">
+                <div class="ch-label ch4">CH 4</div>
+                <div class="val-display" id="val-ch4">—</div>
+                <canvas id="cvs4"></canvas>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+// ===== 配置 =====
+const CONFIG = {
+    stmBaud: 921600,
+    fs: 2000,           // STM32 采样率 2000Hz (TIM2 PSC=83, ARR=499, APB1×2=84MHz)
+    reps: 5,
+    timings: {
+        relax: 4,       // 组间休息 (Label -4)
+        prep: 2,        // 准备 (Label -4)
+        action: 6       // 动作 (中间4s有效)
+    }
+};
+
+const GESTURES = [
+    "1. 静息 (Static Rest)",
+    "2. 握拳 (Fist)",
+    "3. 伸掌 (Spread)",
+    "4. 内屈 (Flexion)",
+    "5. 外伸 (Extension)",
+    "6. 内旋 (Pronation)",
+    "7. 外旋 (Supination)"
+];
+
+const CH_COLORS = ['#60a5fa', '#a78bfa', '#fb923c', '#f472b6'];
+
+// ===== 全局状态 =====
+let rawData = [];               // {idx, d:[ch1,ch2,ch3,ch4], l}
+let isRecording = false;
+let isPaused = false;
+let currentLabel = -4;
+let portSTM = null;
+let charts = {};
+let sampleIndex = 0;            // 全局样本序号，唯一均匀时间轴 (×0.5ms = 真实时间)
+
+// ===== 初始化画布 =====
+window.onload = function () {
+    const ids = ['cvs1', 'cvs2', 'cvs3', 'cvs4'];
+    ids.forEach((id, i) => {
+        const cvs = document.getElementById(id);
+        const box = cvs.parentElement;
+        // 用 devicePixelRatio 保证清晰度
+        const dpr = window.devicePixelRatio || 1;
+        cvs.width = box.clientWidth * dpr;
+        cvs.height = box.clientHeight * dpr;
+        const ctx = cvs.getContext('2d', { alpha: false });
+        ctx.scale(dpr, dpr);
+        ctx.fillStyle = '#0f1117';
+        ctx.fillRect(0, 0, box.clientWidth, box.clientHeight);
+        charts[id] = {
+            ctx, dpr,
+            w: box.clientWidth,
+            h: box.clientHeight,
+            x: 0,
+            lastY: box.clientHeight / 2,
+            color: CH_COLORS[i]
+        };
+    });
+};
+
+// ===== 连接 STM32 =====
+async function connectSTM32() {
+    try {
+        portSTM = await navigator.serial.requestPort();
+        await portSTM.open({ baudRate: CONFIG.stmBaud });
+        document.getElementById('conn-info').textContent = 'STM32 已连接 ✓';
+        document.getElementById('conn-info').classList.add('ok');
+        document.getElementById('btn-conn').disabled = true;
+        document.getElementById('btn-start').disabled = false;
+        document.getElementById('stage-text').textContent = '设备已就绪';
+        document.getElementById('sub-text').textContent = '固件预热 500ms 后开始输出数据\n点击 [开始实验] 启动采集';
+        readLoopSTM(portSTM);
+    } catch (e) {
+        alert('连接失败: ' + e);
+    }
+}
+
+// ===== STM32 读取循环 =====
+// 格式: ch1,ch2,ch3,ch4\n  (4列, 2000Hz)
+async function readLoopSTM(port) {
+    const reader = port.readable.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = '';
+    let lastT = Date.now();
+    let count = 0;
+    let drawCounter = 0;
+
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // 保留未完整的行
+
+            const now = Date.now();
+            count += lines.length;
+
+            // FPS 计算 (每秒更新)
+            if (now - lastT >= 1000) {
+                document.getElementById('fps-stm').textContent =
+                    Math.round(count * 1000 / (now - lastT)) + ' Hz';
+                count = 0;
+                lastT = now;
+            }
+
+            for (const line of lines) {
+                const parts = line.trim().split(',');
+                if (parts.length < 4) continue;
+
+                const v1 = parseInt(parts[0]);
+                const v2 = parseInt(parts[1]);
+                const v3 = parseInt(parts[2]);
+                const v4 = parseInt(parts[3]);
+
+                if (isNaN(v1) || isNaN(v2) || isNaN(v3) || isNaN(v4)) continue;
+
+                // 录制存储
+                if (isRecording) {
+                    rawData.push({ idx: sampleIndex, d: [v1, v2, v3, v4], l: currentLabel });
+                    sampleIndex++;
+                    document.getElementById('cnt-stm').textContent = rawData.length;
+                    document.getElementById('cur-label').textContent = currentLabel;
+                }
+
+                // 绘图降频: 2000Hz -> 约每5帧画一次 (400Hz更新)
+                drawCounter++;
+                if (drawCounter % 5 === 0) {
+                    draw(v1, 'cvs1');
+                    draw(v2, 'cvs2');
+                    draw(v3, 'cvs3');
+                    draw(v4, 'cvs4');
+                    document.getElementById('val-ch1').textContent = v1;
+                    document.getElementById('val-ch2').textContent = v2;
+                    document.getElementById('val-ch3').textContent = v3;
+                    document.getElementById('val-ch4').textContent = v4;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('STM32 读取错误:', e);
+    }
+}
+
+// ===== 绘图函数 =====
+function draw(val, id) {
+    const c = charts[id];
+    const ctx = c.ctx;
+    const step = 2;
+
+    if (c.x >= c.w) {
+        c.x = 0;
+        ctx.fillStyle = '#0f1117';
+        ctx.fillRect(0, 0, c.w, c.h);
+    }
+
+    const y = c.h - (val / 4095) * c.h;
+
+    ctx.fillStyle = 'rgba(15,17,23,0.85)';
+    ctx.fillRect(c.x + step, 0, 20, c.h);
+
+    ctx.strokeStyle = c.color;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = c.color;
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.lastY);
+    ctx.lineTo(c.x + step, y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    c.x += step;
+    c.lastY = y;
+}
+
+// ===== 实验流程 =====
+async function startExperiment() {
+    if (!portSTM) return alert('请先连接 STM32');
+
+    rawData = [];
+    sampleIndex = 0;
+    isRecording = true;
+    isPaused = false;
+
+    document.getElementById('cnt-stm').textContent = '0';
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-pause').disabled = false;
+    document.getElementById('btn-bad').disabled = false;
+    document.getElementById('dl-data').disabled = true;
+
+    for (let r = 0; r < CONFIG.reps; r++) {
+        for (let g = 0; g < GESTURES.length; g++) {
+            document.getElementById('cur-gesture').textContent = GESTURES[g];
+
+            // 放松
+            setPanel('rest', '放松休息', `下一个: ${GESTURES[g]}`);
+            await phase(CONFIG.timings.relax, -4);
+
+            // 准备
+            setPanel('prep', '准备', `目标: ${GESTURES[g]}`);
+            await phase(CONFIG.timings.prep, -4);
+
+            // 动作
+            setPanel('action', '保持动作', `${GESTURES[g]}`);
+            await phaseAction(CONFIG.timings.action, g);
+        }
+    }
+
+    finish();
+}
+
+async function phase(sec, label) {
+    currentLabel = label;
+    for (let i = sec; i > 0; i--) {
+        if (isPaused) await waitPause();
+        document.getElementById('timer').textContent = i;
+        await sleep(1000);
+    }
+}
+
+async function phaseAction(sec, taskLabel) {
+    // 前1秒: 过渡
+    currentLabel = -2;
+    document.getElementById('timer').textContent = sec;
+    if (isPaused) await waitPause();
+    await sleep(1000);
+
+    // 中间有效段
+    currentLabel = taskLabel;
+    for (let i = sec - 1; i > 1; i--) {
+        if (isPaused) await waitPause();
+        document.getElementById('timer').textContent = i;
+        await sleep(1000);
+    }
+
+    // 后1秒: 过渡
+    currentLabel = -2;
+    document.getElementById('timer').textContent = 1;
+    if (isPaused) await waitPause();
+    await sleep(1000);
+}
+
+function setPanel(state, main, sub) {
+    const p = document.getElementById('status-panel');
+    const dot = document.getElementById('state-dot');
+    p.className = 'state-' + state;
+    dot.className = 'state-dot ' + (state === 'action' ? 'action' : state === 'prep' ? 'prep' : '');
+    document.getElementById('stage-text').textContent = main;
+    document.getElementById('sub-text').textContent = sub;
+}
+
+async function waitPause() {
+    document.getElementById('timer').textContent = '||';
+    while (isPaused) await sleep(100);
+}
+
+function togglePause() {
+    isPaused = !isPaused;
+    document.getElementById('btn-pause').textContent = isPaused ? '继续' : '暂停';
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function markBad() {
+    // 2000Hz → 3秒 = 6000个样本
+    const lookback = 6000;
+    const cutIdx = sampleIndex - lookback;
+    for (let i = rawData.length - 1; i >= 0; i--) {
+        if (rawData[i].idx < cutIdx) break;
+        rawData[i].l = -3;
+    }
+    const btn = document.getElementById('btn-bad');
+    const old = btn.textContent;
+    btn.textContent = '✓ 已作废 (−3)';
+    setTimeout(() => btn.textContent = old, 1200);
+}
+
+function finish() {
+    isRecording = false;
+    setPanel('rest', '实验结束', '请点击下方按钮导出数据');
+    document.getElementById('timer').textContent = 'END';
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-pause').disabled = true;
+    document.getElementById('btn-bad').disabled = true;
+    document.getElementById('dl-data').disabled = false;
+    document.getElementById('cur-label').textContent = '—';
+    document.getElementById('cur-gesture').textContent = '—';
+}
+
+// ===== 下载 =====
+function saveCSV(content, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'text/csv' }));
+    a.download = filename;
+    a.click();
+}
+
+function downloadData() {
+    if (!rawData.length) return alert('无数据');
+    // idx × 0.5ms = 真实时间，时间轴均匀唯一，无重复
+    let c = 'Time_ms,CH1,CH2,CH3,CH4,Label\n';
+    rawData.forEach(r => {
+        c += `${(r.idx * 0.5).toFixed(1)},${r.d[0]},${r.d[1]},${r.d[2]},${r.d[3]},${r.l}\n`;
+    });
+    saveCSV(c, 'EMG_Dataset_V9.csv');
+}
+</script>
+</body>
+</html>
