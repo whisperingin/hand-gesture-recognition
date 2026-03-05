@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EMG 手势预测 · 交互模式</title>
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans SC", sans-serif; }
+    body { background: radial-gradient(1200px 800px at 20% 20%, #f7fbff 0%, #e9f2ff 35%, #eef0ff 70%, #f6f3ff 100%); }
+
+    /* ── 主面板 ── */
+    #ui {
+      position: fixed; top: 16px; left: 16px;
+      width: min(400px, calc(100% - 32px));
+      background: rgba(255,255,255,0.88);
+      border: 1px solid rgba(30,60,90,0.13);
+      border-radius: 18px;
+      box-shadow: 0 12px 36px rgba(10,20,40,0.13);
+      padding: 16px 16px 14px;
+      backdrop-filter: blur(14px);
+      user-select: none;
+    }
+
+    #panelTitle {
+      font-size: 15px; font-weight: 900; color: #142033;
+      margin: 0 0 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #panelTitle .dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #aab6c8; flex-shrink: 0;
+      transition: background 0.4s;
+    }
+    #panelTitle .dot.active { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+    #panelTitle .dot.warn   { background: #f59e0b; box-shadow: 0 0 6px #f59e0b88; }
+
+    /* ── 手势展示块 ── */
+    #gestureBlock {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(20,32,51,0.045);
+      border: 1px solid rgba(20,32,51,0.08);
+      margin-bottom: 10px;
+    }
+    #badge {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: grid; place-items: center;
+      background: rgba(20,32,51,0.10);
+      font-weight: 900; font-size: 17px; color: #142033;
+      flex-shrink: 0;
+    }
+    #gestureLabel { font-weight: 900; color: #142033; font-size: 15px; }
+    #gestureHint  { font-size: 11.5px; color: rgba(20,32,51,0.65); margin-top: 2px; }
+
+    /* ── 状态区 ── */
+    #statusBox {
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      border: 1px solid transparent;
+      transition: background 0.3s, border-color 0.3s;
+    }
+    #statusBox.idle     { background: rgba(20,32,51,0.03); border-color: rgba(20,32,51,0.07); }
+    #statusBox.collect  { background: rgba(59,130,246,0.07); border-color: rgba(59,130,246,0.18); }
+    #statusBox.retry    { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.22); }
+    #statusBox.result   { background: rgba(34,197,94,0.07); border-color: rgba(34,197,94,0.20); }
+
+    .phase-label {
+      font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    .phase-label.blue   { color: #3b82f6; }
+    .phase-label.orange { color: #d97706; }
+    .phase-label.green  { color: #16a34a; }
+    .phase-label.gray   { color: #6b7280; }
+
+    /* 倒计时 */
+    #countdownWrap {
+      display: flex; align-items: center; gap: 12px;
+    }
+    #countdownNum {
+      font-size: 38px; font-weight: 900; color: #3b82f6;
+      line-height: 1; font-variant-numeric: tabular-nums;
+      min-width: 64px;
+    }
+    #collectBar {
+      flex: 1; height: 8px; border-radius: 4px;
+      background: rgba(59,130,246,0.15); overflow: hidden;
+    }
+    #collectFill {
+      height: 100%; background: #3b82f6; border-radius: 4px;
+      transition: width 0.1s linear;
+    }
+
+    /* 重试 */
+    #retryInfo { font-size: 13px; color: #92400e; line-height: 1.55; }
+    #retryConf { font-size: 22px; font-weight: 900; color: #d97706; margin: 4px 0 2px; }
+
+    /* 结果 */
+    #resultConf { font-size: 13px; color: #15803d; line-height: 1.55; }
+
+    /* 置信度进度条 */
+    .conf-bar-wrap {
+      margin-top: 8px; display: flex; align-items: center; gap: 8px;
+    }
+    .conf-bar-bg {
+      flex: 1; height: 8px; border-radius: 4px;
+      background: rgba(20,32,51,0.08); overflow: hidden;
+    }
+    .conf-bar-fill {
+      height: 100%; border-radius: 4px;
+      transition: width 0.4s ease, background 0.4s;
+    }
+    .conf-bar-fill.green  { background: #22c55e; }
+    .conf-bar-fill.orange { background: #f59e0b; }
+    .conf-bar-fill.red    { background: #ef4444; }
+    .conf-bar-label { font-size: 12px; font-weight: 700; color: #374151; width: 42px; text-align: right; }
+
+    /* 所有类别概率条 */
+    #probList { margin-top: 10px; }
+    .prob-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 4px;
+    }
+    .prob-name { font-size: 11px; color: #374151; width: 72px; flex-shrink: 0; }
+    .prob-bg { flex: 1; height: 5px; border-radius: 3px; background: rgba(20,32,51,0.08); overflow: hidden; }
+    .prob-fill { height: 100%; border-radius: 3px; background: #6366f1; transition: width 0.4s ease; }
+    .prob-pct { font-size: 10.5px; color: #6b7280; width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ── 控制按钮 ── */
+    #btnRow { display: flex; gap: 8px; margin-top: 4px; }
+    .ctrl-btn {
+      flex: 1; padding: 10px 0;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      font-size: 13.5px; font-weight: 800;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .ctrl-btn:active { transform: scale(0.97); }
+    #startBtn {
+      background: #3b82f6; color: #fff;
+      border-color: #2563eb;
+      box-shadow: 0 3px 12px rgba(59,130,246,0.35);
+    }
+    #startBtn:hover { opacity: 0.88; }
+    #stopBtn {
+      background: rgba(239,68,68,0.09); color: #dc2626;
+      border-color: rgba(239,68,68,0.25);
+    }
+    #stopBtn:hover { background: rgba(239,68,68,0.15); }
+
+    #idleHint { font-size: 12px; color: rgba(20,32,51,0.50); text-align: center; margin-top: 8px; }
+
+    /* ── 画布 ── */
+    #canvasWrap { position: fixed; inset: 0; z-index: 0; }
+    #ui { z-index: 10; }
+  </style>
+</head>
+<body>
+  <div id="canvasWrap"></div>
+
+  <div id="ui">
+    <p id="panelTitle"><span class="dot" id="statusDot"></span>EMG 手势预测</p>
+
+    <!-- 当前手势展示 -->
+    <div id="gestureBlock">
+      <div id="badge">0</div>
+      <div>
+        <div id="gestureLabel">Rest · 静息</div>
+        <div id="gestureHint">等待预测...</div>
+      </div>
+    </div>
+
+    <!-- 动态状态区 -->
+    <div id="statusBox" class="idle">
+      <!-- 内容由 JS 动态写入 -->
+      <div class="phase-label gray">状态</div>
+      <div id="idleHint" style="font-size:13px;color:rgba(20,32,51,0.5);margin-top:2px;">
+        点击「开始预测」采集 3 秒 EMG 信号并识别手势
+      </div>
+    </div>
+
+    <!-- 概率列表（result 阶段显示） -->
+    <div id="probList"></div>
+
+    <!-- 控制按钮 -->
+    <div id="btnRow">
+      <button class="ctrl-btn" id="startBtn">▶ 开始预测</button>
+      <button class="ctrl-btn" id="stopBtn" style="display:none">■ 停止</button>
+    </div>
+  </div>
+
+  <!-- Three.js importmap -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    // =============================================
+    // 手势元数据
+    // =============================================
+    const GESTURES = [
+      { id: 0, en: "Rest",      zh: "静息",  hint: "默认中性姿态" },
+      { id: 1, en: "Fist",      zh: "握拳",  hint: "五指收缩" },
+      { id: 2, en: "Spread",    zh: "伸掌",  hint: "手指放射状张开" },
+      { id: 3, en: "Flexion",   zh: "内屈",  hint: "手掌绕腕关节向下" },
+      { id: 4, en: "Extension", zh: "外伸",  hint: "手掌绕腕关节向上" },
+      { id: 5, en: "Pronation", zh: "内旋",  hint: "前臂逆时针旋转" },
+      { id: 6, en: "Supination",zh: "外旋",  hint: "前臂顺时针旋转" },
+    ];
+
+    // =============================================
+    // Three.js 场景
+    // =============================================
+    const canvasWrap = document.getElementById("canvasWrap");
+    const renderer   = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    canvasWrap.appendChild(renderer.domElement);
+
+    const scene  = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(9.2, 5.4, 9.6);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.target.set(3.2, 1.2, 0);
+    controls.update();
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x4b6285, 0.95));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.25);
+    keyLight.position.set(10, 12, 6);
+    scene.add(keyLight);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.55);
+    fillLight.position.set(-8, 6, -6);
+    scene.add(fillLight);
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(30, 64),
+      new THREE.MeshToonMaterial({ color: 0xf8fafc })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.02;
+    scene.add(ground);
+
+    function capsule(len, radius) {
+      return new THREE.CapsuleGeometry(radius, Math.max(0.001, len - 2 * radius), 10, 18);
+    }
+    function toonPart(geometry, colorHex, outline = true) {
+      const g   = new THREE.Group();
+      const mat = new THREE.MeshToonMaterial({ color: colorHex });
+      g.add(new THREE.Mesh(geometry, mat));
+      if (outline) {
+        const om = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x1a1a1a, side: THREE.BackSide }));
+        om.scale.set(1.045, 1.045, 1.045);
+        g.add(om);
+      }
+      return g;
+    }
+    function createFinger({ basePos, segLens, segRadius, baseYaw = 0, colorHex }) {
+      const finger = {
+        base: new THREE.Group(), mid: new THREE.Group(), tip: new THREE.Group(),
+        baseYaw,
+        targets: { baseCurl: 0, midCurl: 0, tipCurl: 0, splay: 0 }
+      };
+      finger.base.position.copy(basePos);
+      finger.base.rotation.y = baseYaw;
+
+      const seg1 = toonPart(capsule(segLens[0], segRadius), colorHex, true);
+      seg1.rotation.z = Math.PI / 2; seg1.position.x = segLens[0] * 0.5;
+      finger.base.add(seg1);
+
+      finger.mid.position.x = segLens[0];
+      finger.base.add(finger.mid);
+      const seg2 = toonPart(capsule(segLens[1], segRadius * 0.92), colorHex, true);
+      seg2.rotation.z = Math.PI / 2; seg2.position.x = segLens[1] * 0.5;
+      finger.mid.add(seg2);
+
+      finger.tip.position.x = segLens[1];
+      finger.mid.add(finger.tip);
+      const seg3 = toonPart(capsule(segLens[2], segRadius * 0.86), colorHex, true);
+      seg3.rotation.z = Math.PI / 2; seg3.position.x = segLens[2] * 0.5;
+      finger.tip.add(seg3);
+
+      return finger;
+    }
+
+    function createGloveArm() {
+      const root         = new THREE.Group();
+      const forearmGroup = new THREE.Group();
+      root.add(forearmGroup);
+
+      const sleeveColor = 0x7aa6ff;
+      const cuffColor   = 0x5d89ff;
+      const gloveColor  = 0xffffff;
+
+      const forearmLen    = 4.35;
+      const forearmRadius = 0.58;
+
+      const forearmMesh = toonPart(capsule(forearmLen, forearmRadius), sleeveColor, true);
+      forearmMesh.rotation.z = Math.PI / 2;
+      forearmMesh.position.x = forearmLen * 0.5;
+      forearmMesh.position.y = 0.72;
+      forearmGroup.add(forearmMesh);
+
+      const cuffGeom = new THREE.TorusGeometry(0.55, 0.18, 18, 40);
+      const cuff     = toonPart(cuffGeom, cuffColor, true);
+      cuff.rotation.y = Math.PI / 2;
+      cuff.position.set(forearmLen - 0.05, 0.72, 0);
+      forearmGroup.add(cuff);
+
+      const wristPivot = new THREE.Group();
+      wristPivot.position.set(forearmLen, 0.72, 0);
+      forearmGroup.add(wristPivot);
+
+      const palmCore = toonPart(new THREE.SphereGeometry(0.90, 28, 28), gloveColor, true);
+      palmCore.position.set(0.95, 0.30, 0);
+      palmCore.scale.set(1.18, 0.70, 1.00);
+      wristPivot.add(palmCore);
+
+      const palmBridge = toonPart(capsule(0.95, 0.38), gloveColor, true);
+      palmBridge.rotation.z = Math.PI / 2;
+      palmBridge.position.set(0.35, 0.26, 0);
+      palmBridge.scale.set(1.05, 0.75, 0.95);
+      wristPivot.add(palmBridge);
+
+      const fingers = {};
+      const baseX = 1.7, baseY = 0.92;
+      const zs    = [-0.55, -0.20, 0.18, 0.52];
+
+      fingers.index  = createFinger({ basePos: new THREE.Vector3(baseX,        baseY, zs[0]), segLens: [0.86,0.70,0.56], segRadius: 0.19, baseYaw: -0.10, colorHex: gloveColor });
+      fingers.middle = createFinger({ basePos: new THREE.Vector3(baseX + 0.03, baseY, zs[1]), segLens: [0.92,0.74,0.58], segRadius: 0.20, baseYaw: -0.03, colorHex: gloveColor });
+      fingers.ring   = createFinger({ basePos: new THREE.Vector3(baseX + 0.01, baseY, zs[2]), segLens: [0.88,0.71,0.56], segRadius: 0.19, baseYaw:  0.05, colorHex: gloveColor });
+      fingers.pinky  = createFinger({ basePos: new THREE.Vector3(baseX - 0.04, baseY, zs[3]), segLens: [0.74,0.58,0.46], segRadius: 0.17, baseYaw:  0.12, colorHex: gloveColor });
+
+      for (const k of ["index","middle","ring","pinky"]) wristPivot.add(fingers[k].base);
+
+      fingers.thumb = createFinger({ basePos: new THREE.Vector3(0.72, 0.70, -0.6), segLens: [0.66,0.52,0.44], segRadius: 0.20, baseYaw: Math.PI / 2, colorHex: gloveColor });
+      fingers.thumb.base.rotation.x = 0.06;
+      wristPivot.add(fingers.thumb.base);
+
+      return { root, forearmGroup, wristPivot, fingers, targets: { forearmTwist: 0, wristFlex: 0 } };
+    }
+
+    const arm = createGloveArm();
+    scene.add(arm.root);
+    arm.root.position.y = 1.0;
+
+    // =============================================
+    // 手势动画目标
+    // =============================================
+    function setTargetsForGesture(id) {
+      const t = arm.targets;
+      t.forearmTwist = 0;
+      t.wristFlex    = 0;
+      for (const k of Object.keys(arm.fingers)) {
+        arm.fingers[k].targets.baseCurl = 0;
+        arm.fingers[k].targets.midCurl  = 0;
+        arm.fingers[k].targets.tipCurl  = 0;
+        arm.fingers[k].targets.splay    = 0;
+      }
+      if (id === 0) {
+        for (const k of ["index","middle","ring","pinky"]) {
+          arm.fingers[k].targets.baseCurl = -0.10;
+          arm.fingers[k].targets.midCurl  = -0.07;
+          arm.fingers[k].targets.tipCurl  = -0.05;
+        }
+        arm.fingers.thumb.targets.baseCurl = -0.06;
+        arm.fingers.thumb.targets.midCurl  = -0.05;
+        arm.fingers.thumb.targets.tipCurl  = -0.03;
+        arm.fingers.thumb.targets.splay    = -0.06;
+      }
+      if (id === 1) {
+        for (const k of ["index","middle","ring","pinky"]) {
+          arm.fingers[k].targets.baseCurl = -1.00;
+          arm.fingers[k].targets.midCurl  = -1.12;
+          arm.fingers[k].targets.tipCurl  = -0.90;
+        }
+        arm.fingers.thumb.targets.baseCurl = -0.78;
+        arm.fingers.thumb.targets.midCurl  = -0.86;
+        arm.fingers.thumb.targets.tipCurl  = -0.62;
+        arm.fingers.thumb.targets.splay    = -0.10;
+      }
+      if (id === 2) {
+        arm.fingers.index.targets.splay  =  0.26;
+        arm.fingers.middle.targets.splay =  0.08;
+        arm.fingers.ring.targets.splay   = -0.10;
+        arm.fingers.pinky.targets.splay  = -0.28;
+        arm.fingers.thumb.targets.splay  =  0.22;
+      }
+      if (id === 3) t.wristFlex =  -0.62;
+      if (id === 4) t.wristFlex =   0.56;
+      if (id === 5) t.forearmTwist =  0.95;
+      if (id === 6) t.forearmTwist = -0.95;
+      if (id === 5 || id === 6) {
+        arm.fingers.thumb.targets.splay = -0.06;
+        arm.fingers.index.targets.splay = -0.08;
+        arm.fingers.pinky.targets.splay =  0.08;
+      }
+    }
+
+    function applyTargetsSmooth(dt) {
+      const a = 1.0 - Math.exp(-10.0 * dt);
+      arm.forearmGroup.rotation.x = THREE.MathUtils.lerp(arm.forearmGroup.rotation.x, arm.targets.forearmTwist, a);
+      arm.wristPivot.rotation.z   = THREE.MathUtils.lerp(arm.wristPivot.rotation.z,   arm.targets.wristFlex,    a);
+      for (const k of Object.keys(arm.fingers)) {
+        const f = arm.fingers[k];
+        f.base.rotation.y = THREE.MathUtils.lerp(f.base.rotation.y, f.baseYaw + f.targets.splay,    a);
+        f.base.rotation.z = THREE.MathUtils.lerp(f.base.rotation.z, f.targets.baseCurl, a);
+        f.mid.rotation.z  = THREE.MathUtils.lerp(f.mid.rotation.z,  f.targets.midCurl,  a);
+        f.tip.rotation.z  = THREE.MathUtils.lerp(f.tip.rotation.z,  f.targets.tipCurl,  a);
+      }
+    }
+
+    let currentGestureId = 0;
+    setTargetsForGesture(0);
+
+    function setGesture(id) {
+      const gid = Math.max(0, Math.min(6, Math.trunc(Number.isFinite(id) ? id : 0)));
+      if (currentGestureId === gid) return;
+      currentGestureId = gid;
+      setTargetsForGesture(gid);
+    }
+
+    let last = performance.now();
+    function tick(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      applyTargetsSmooth(dt);
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // =============================================
+    // UI 元素引用
+    // =============================================
+    const statusDot    = document.getElementById("statusDot");
+    const badge        = document.getElementById("badge");
+    const gestureLabel = document.getElementById("gestureLabel");
+    const gestureHint  = document.getElementById("gestureHint");
+    const statusBox    = document.getElementById("statusBox");
+    const probList     = document.getElementById("probList");
+    const startBtn     = document.getElementById("startBtn");
+    const stopBtn      = document.getElementById("stopBtn");
+
+    // =============================================
+    // API 调用
+    // =============================================
+    async function apiControl(cmd) {
+      try {
+        await fetch("/api/control", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cmd }),
+        });
+      } catch (e) {
+        console.warn("API error:", e);
+      }
+    }
+
+    startBtn.addEventListener("click", () => apiControl("start"));
+    stopBtn.addEventListener("click",  () => apiControl("stop"));
+
+    // =============================================
+    // 更新手势展示块
+    // =============================================
+    function updateGestureBlock(id) {
+      const g = GESTURES.find(x => x.id === id) || GESTURES[0];
+      badge.textContent        = String(g.id);
+      gestureLabel.textContent = `${g.en} · ${g.zh}`;
+      gestureHint.textContent  = g.hint;
+      setGesture(id);
+    }
+
+    // =============================================
+    // 概率条渲染
+    // =============================================
+    function renderProbBars(allProbs) {
+      if (!allProbs || typeof allProbs !== "object") {
+        probList.innerHTML = "";
+        return;
+      }
+      const entries = Object.entries(allProbs).sort((a, b) => b[1] - a[1]);
+      probList.innerHTML = entries.map(([name, prob]) => `
+        <div class="prob-row">
+          <span class="prob-name">${name}</span>
+          <div class="prob-bg"><div class="prob-fill" style="width:${(prob*100).toFixed(1)}%"></div></div>
+          <span class="prob-pct">${(prob*100).toFixed(1)}%</span>
+        </div>
+      `).join("");
+    }
+
+    // =============================================
+    // 置信度条颜色
+    // =============================================
+    function confClass(conf) {
+      if (conf >= 0.85) return "green";
+      if (conf >= 0.60) return "orange";
+      return "red";
+    }
+
+    function confBar(conf) {
+      const pct = (conf * 100).toFixed(1);
+      return `
+        <div class="conf-bar-wrap">
+          <div class="conf-bar-bg">
+            <div class="conf-bar-fill ${confClass(conf)}" style="width:${pct}%"></div>
+          </div>
+          <span class="conf-bar-label">${pct}%</span>
+        </div>`;
+    }
+
+    // =============================================
+    // 状态区渲染（按 phase）
+    // =============================================
+    function renderStatus(data) {
+      const phase   = data.phase || "idle";
+      const running = phase !== "idle";
+
+      // 按钮显示
+      startBtn.style.display = running ? "none" : "";
+      stopBtn.style.display  = running ? ""     : "none";
+
+      // 状态指示灯
+      statusDot.className = "dot" + (phase === "retrying" ? " warn" : phase !== "idle" ? " active" : "");
+
+      // 清空状态区样式类
+      statusBox.className = "idle";
+
+      if (phase === "idle") {
+        statusBox.className = "idle";
+        statusBox.innerHTML = `
+          <div class="phase-label gray">待机</div>
+          <div style="font-size:13px;color:rgba(20,32,51,0.5);margin-top:2px;">
+            点击「开始预测」采集 ${data.collect_seconds ?? 3} 秒 EMG 信号并识别手势
+          </div>`;
+        probList.innerHTML = "";
+
+      } else if (phase === "collecting") {
+        statusBox.className = "collect";
+        const total    = data.collect_seconds ?? 3;
+        const remain   = data.countdown ?? 0;
+        const progress = Math.max(0, Math.min(100, ((total - remain) / total) * 100));
+        statusBox.innerHTML = `
+          <div class="phase-label blue">采集中</div>
+          <div id="countdownWrap">
+            <div id="countdownNum">${remain.toFixed(1)}s</div>
+            <div id="collectBar"><div id="collectFill" style="width:${progress.toFixed(1)}%"></div></div>
+          </div>`;
+        probList.innerHTML = "";
+
+      } else if (phase === "retrying") {
+        statusBox.className = "retry";
+        const confPct  = (data.confidence * 100).toFixed(1);
+        const thrPct   = ((data.confidence_threshold ?? 0.95) * 100).toFixed(0);
+        statusBox.innerHTML = `
+          <div class="phase-label orange">⚠ 置信度不足，重试中</div>
+          <div id="retryConf">${confPct}%</div>
+          <div id="retryInfo">
+            低于阈值 ${thrPct}%，正在第 <b>${data.attempt ?? "?"}</b> 次尝试...
+            <br>当前最高猜测：${data.name ?? "—"}
+          </div>
+          ${confBar(data.confidence ?? 0)}`;
+        probList.innerHTML = "";
+        if (data.gesture_id != null) updateGestureBlock(data.gesture_id);
+
+      } else if (phase === "result") {
+        statusBox.className = "result";
+        const confPct = (data.confidence * 100).toFixed(1);
+        const thrPct  = ((data.confidence_threshold ?? 0.95) * 100).toFixed(0);
+        statusBox.innerHTML = `
+          <div class="phase-label green">✓ 预测成功</div>
+          <div id="resultConf">
+            置信度 <b>${confPct}%</b>（阈值 ${thrPct}%）
+            ${data.attempt > 1 ? `· 经过 ${data.attempt} 次尝试` : ""}
+            · 采样 ${data.n_samples ?? "?"} 点
+          </div>
+          ${confBar(data.confidence ?? 0)}`;
+        renderProbBars(data.all_probs);
+        if (data.gesture_id != null) updateGestureBlock(data.gesture_id);
+      }
+    }
+
+    // =============================================
+    // 轮询 gesture_state.json
+    // =============================================
+    let lastTs = 0;
+
+    function poll() {
+      fetch("gesture_state.json?t=" + Date.now())
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(data => {
+          if (data.timestamp === lastTs) return;
+          lastTs = data.timestamp;
+          renderStatus(data);
+        })
+        .catch(() => {
+          // 文件不存在或服务未启动 → 保持 idle
+        });
+    }
+
+    setInterval(poll, 150);   // 150ms 轮询，足够流畅
+    poll();                   // 立即执行一次
+
+  </script>
+</body>
+</html>
